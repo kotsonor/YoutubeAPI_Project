@@ -1,4 +1,4 @@
-liczby <- 1:10
+liczby <- 1:15
 liczby
 print("Hello World")
 15+66
