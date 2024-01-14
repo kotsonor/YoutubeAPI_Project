@@ -3,3 +3,8 @@
 .RData
 .Ruserdata
 .httr-oauth
+<<<<<<< HEAD
+=======
+.passwords
+.functions_test
+>>>>>>> 8c919d9b60ea85639ffa51a8d5097365ceff43e8
