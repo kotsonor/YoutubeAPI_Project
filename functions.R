@@ -25,7 +25,7 @@ googleAuthR::gar_auth()
 yt_oauth(app_id = client_id,
          app_secret = client_secret)
 
-# MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
+MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
 
 
 
@@ -43,7 +43,7 @@ get_overall_stats = function(id) {
 }
 
 
-# MrBeast_stats = get_overall_stats(MrBeastChannelID)
+MrBeast_stats = get_overall_stats(MrBeastChannelID)
 
 
 get_channel_videos = function(id, max_results) {
@@ -53,7 +53,7 @@ get_channel_videos = function(id, max_results) {
   channel_videos = channel_videos[, .("videoID" = contentDetails.videoId, 
                                       "Date" = as.Date(contentDetails.videoPublishedAt))]
 }
-
+filmy<-get_channel_videos(MrBeastChannelID,20)
 # base = "https://www.googleapis.com/youtube/v3/videos"
 # id = MrBeast_videos$videoID[1:2]
 # 
@@ -88,6 +88,6 @@ get_videos_stats = function(id) {
   videos.dt = as.data.table(videos.json$items)
   videos.dt
 }
-
-
+get_videos_stats("ehd_sbGGnOM&t")
+get_videos_stats(filmy$videoID)
 
