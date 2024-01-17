@@ -11,6 +11,12 @@ library(tuber)
 library(data.table)
 library(googleAuthR)
 library(googleAnalyticsR)
+#do wykresow
+library(lubridate)
+library(grid)
+library(gridExtra)
+library(ggplot2)
+library(cowplot)
 
 
 # Set credentials
@@ -109,15 +115,61 @@ get_channels_stats = function(id_list, begining_date, end_date) {
   filtered_videos_dt = rbindlist(filtered_videos)
   videos_stats = lapply(filtered_videos_dt$videoID, get_videos_stats)
   videos_stats_dt = rbindlist(videos_stats,fill=TRUE)
-  videos_stats_dt = videos_stats_dt[,.(videoID=id,Likes=statistics.likeCount,Comments=statistics.commentCount,Views=statistics.viewCount)]
+  videos_stats_dt = videos_stats_dt[,.(videoID=id,
+                                       Likes=as.numeric(statistics.likeCount),
+                                       Comments=as.numeric(statistics.commentCount),
+                                       Views=as.numeric(statistics.viewCount))]
   filtered_videos_with_stats = merge(videos_stats_dt, filtered_videos_dt, by="videoID")
   return(filtered_videos_with_stats)
 }
 
+
+
+
+#Trzeba jakos pogrupowac po tylko miesiacach i latach bo wykres jest bardzo niczytelny
+draw_line_plot = function(data_table){
+  data_table[, mounth_year := floor_date(Date, "month")]
+  group_data_table = data_table[,.(Likes=mean(Likes),
+                                     Comments=mean(Comments),
+                                     Views=mean(Views)),
+                                by=.(mounth_year, channel_id)]
+  
+  plot_views = ggplot(group_data_table, aes(x=mounth_year, y=Views, color=channel_id)) +
+    geom_line() +
+    theme_bw() +
+    ggtitle("Number of views changes") +
+    xlab("Date") +
+    theme(legend.position = "none")
+  
+  plot_likes = ggplot(group_data_table, aes(x=mounth_year, y=Likes, color=channel_id)) +
+    geom_line() +
+    theme_bw() +
+    ggtitle("Number of likes changes") +
+    xlab("Date")+
+    theme(legend.position = "none")
+  
+  plot_comments = ggplot(group_data_table, aes(x=mounth_year, y=Comments, color=channel_id)) +
+    geom_line() +
+    theme_bw() +
+    ggtitle("Number of comments changes") +
+    xlab("Date") +
+    theme(legend.position = "none")
+  
+  legend = get_legend(plot_views + theme(legend.position="bottom"))
+  grid.arrange(plot_views,
+               plot_likes,
+               plot_comments,
+               ggplot()+theme_void(),
+               legend,
+               ncol = 3)
+  
+}
+
+
 MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
 PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
+BuddaChannelID="UC8LJZNHnqXKg5TMgyvxszPA"
 data_pocz=as.Date("2023-01-01")
 data_konc=as.Date("2024-01-01")
-get_channels_stats(c(MrBeastChannelID,PewDiePieChannelID),data_pocz,data_konc)
-
-
+data=get_channels_stats(c(BuddaChannelID,PewDiePieChannelID),data_pocz,data_konc)
+draw_line_plot(data)
