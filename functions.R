@@ -26,6 +26,7 @@ yt_oauth(app_id = client_id,
          app_secret = client_secret)
 
 MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
+PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
 
 
 
@@ -39,7 +40,7 @@ get_overall_stats = function(id) {
   stats_dt = stats_dt[,lapply(.SD, as.numeric)]
   stats_dt = stats_dt[, channelName := stats[[4]][["localized"]][["title"]]]
   stats_dt = stats_dt[, channelCountry := stats[[4]][["country"]]]
-  stats_dt
+  return(stats_dt)
 }
 
 
@@ -52,6 +53,8 @@ get_channel_videos = function(id, max_results) {
   channel_videos = as.data.table(list_channel_videos(id, max_results))
   channel_videos = channel_videos[, .("videoID" = contentDetails.videoId, 
                                       "Date" = as.Date(contentDetails.videoPublishedAt))]
+  channel_videos = as.data.table(channel_videos)
+  return(channel_videos)
 }
 filmy<-get_channel_videos(MrBeastChannelID,20)
 # base = "https://www.googleapis.com/youtube/v3/videos"
@@ -90,4 +93,31 @@ get_videos_stats = function(id) {
 }
 get_videos_stats("ehd_sbGGnOM&t")
 get_videos_stats(filmy$videoID)
+
+get_channel_stats_date = function(channel_id, begining_date, end_date){
+  videos = get_channel_videos(channel_id, max_results = 2000)
+  videos = videos[Date<=end_date]
+  videos = videos[Date>=begining_date]
+  videos$channel_id=channel_id
+  return(videos)
+}
+
+
+
+get_channels_stats = function(id_list, begining_date, end_date) {
+  filtered_videos = lapply(id_list, function(id) get_channel_stats_date(id, begining_date, end_date))
+  filtered_videos_dt = rbindlist(filtered_videos)
+  videos_stats = lapply(filtered_videos_dt$videoID, get_videos_stats)
+  videos_stats_dt = rbindlist(videos_stats,fill=TRUE)
+  videos_stats_dt = videos_stats_dt[,.(videoID=id,Likes=statistics.likeCount,Comments=statistics.commentCount,Views=statistics.viewCount)]
+  filtered_videos_with_stats = merge(videos_stats_dt, filtered_videos_dt, by="videoID")
+  return(filtered_videos_with_stats)
+}
+
+MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
+PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
+data_pocz=as.Date("2023-01-01")
+data_konc=as.Date("2024-01-01")
+get_channels_stats(c(MrBeastChannelID,PewDiePieChannelID),data_pocz,data_konc)
+
 
