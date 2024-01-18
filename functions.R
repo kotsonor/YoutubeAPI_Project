@@ -62,59 +62,60 @@ get_channel_videos = function(id, max_results) {
   channel_videos = as.data.table(channel_videos)
   return(channel_videos)
 }
-filmy<-get_channel_videos(MrBeastChannelID,20)
-# base = "https://www.googleapis.com/youtube/v3/videos"
-# id = MrBeast_videos$videoID[1:2]
-# 
-# api_params = 
-#   paste(paste0("key=", key), 
-#         paste0("id=", paste(id, collapse = "%2C")), 
-#         "part=statistics%2Csnippet",
-#         sep = "&")
-# api_call = paste0(base, "?", api_params)
-# 
-# api_result = GET(api_call)
-# json_result = httr::content(api_result, "text", encoding="UTF-8")
-# 
-# videos.json = fromJSON(json_result, flatten = T)
-# videos.dt = as.data.table(channel.json2)
-# videos.dt2 = as.data.table(videos.json$items)
+
+filmy <- get_channel_videos(MrBeastChannelID,20)
 
 
-get_videos_stats = function(id) {
+get_videos_stats = function(id){
   # id = vector of videoIDs
   # returns a data table of video title and statistics (views, likes, comms)
-  base = "https://www.googleapis.com/youtube/v3/videos"
-  api_params = 
-    paste(paste0("key=", key), 
-          paste0("id=", paste(id, collapse = "%2C")), 
-          "part=statistics%2Csnippet",
-          sep = "&")
-  api_call = paste0(base, "?", api_params)
-  api_result = GET(api_call)
-  json_result = httr::content(api_result, "text", encoding="UTF-8")
-  videos.json = fromJSON(json_result, flatten = T)
-  videos.dt = as.data.table(videos.json$items)
-  videos.dt
+  subvectors <- list()
+  
+  # Split the vector into sub-vectors of size 50
+  # we can get max 50 statistics at once with 1 api call
+  for (i in seq(1, length(id), 50)) {
+    subvector <- id[i:(i + 50 - 1)]
+    subvectors <- append(subvectors, list(subvector))
+  }
+  ids = lapply(subvectors, na.omit)
+  videos_list = lapply(ids, function(current_id) { 
+    base = "https://www.googleapis.com/youtube/v3/videos"
+    api_params = 
+      paste(paste0("key=", key), 
+            paste0("id=", paste(current_id, collapse = "%2C")), 
+            "part=statistics%2Csnippet",
+            sep = "&")
+    api_call = paste0(base, "?", api_params)
+    api_result = GET(api_call)
+    json_result = httr::content(api_result, "text", encoding="UTF-8")
+    videos.json = fromJSON(json_result, flatten = T)
+    videos.dt = as.data.table(videos.json$items)
+    videos.dt[,.(id, statistics.viewCount, statistics.likeCount, statistics.commentCount)]
+  })
+  videos.dt = rbindlist(videos_list)
 }
-get_videos_stats("ehd_sbGGnOM&t")
-get_videos_stats(filmy$videoID)
 
-get_channel_stats_date = function(channel_id, begining_date, end_date){
+
+filmy_stats = get_videos_stats(filmy$videoID)
+
+get_channel_stats_date = function(channel_id, start_date, end_date){
   videos = get_channel_videos(channel_id, max_results = 2000)
   videos = videos[Date<=end_date]
-  videos = videos[Date>=begining_date]
+  videos = videos[Date>=start_date]
   videos$channel_id=channel_id
   return(videos)
 }
 
 
 
-get_channels_stats = function(id_list, begining_date, end_date) {
-  filtered_videos = lapply(id_list, function(id) get_channel_stats_date(id, begining_date, end_date))
+get_channels_stats = function(id_list, start_date, end_date) {
+  filtered_videos = lapply(id_list, function(id) get_channel_stats_date(id, start_date, end_date))
   filtered_videos_dt = rbindlist(filtered_videos)
-  videos_stats = lapply(filtered_videos_dt$videoID, get_videos_stats)
-  videos_stats_dt = rbindlist(videos_stats,fill=TRUE)
+  # videos_stats = lapply(filtered_videos_dt$videoID, get_videos_stats) 
+  # wrong use of function get_videos_stats (inefficient), 
+  # the function can use multiple arguments as below
+  videos_stats_dt = get_videos_stats(filtered_videos_dt$videoID)
+  # videos_stats_dt = rbindlist(videos_stats,fill=TRUE)
   videos_stats_dt = videos_stats_dt[,.(videoID=id,
                                        Likes=as.numeric(statistics.likeCount),
                                        Comments=as.numeric(statistics.commentCount),
@@ -173,3 +174,5 @@ data_pocz=as.Date("2023-01-01")
 data_konc=as.Date("2024-01-01")
 data=get_channels_stats(c(BuddaChannelID,PewDiePieChannelID),data_pocz,data_konc)
 draw_line_plot(data)
+
+
