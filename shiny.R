@@ -1,5 +1,6 @@
 library(data.table)
 
+
 # Definicja interfejsu użytkownika (UI)
 ui <- fluidPage(
   titlePanel("Aplikacja Shiny z Wykresem"),
@@ -71,7 +72,8 @@ get_videos_stats = function(id){
     json_result = httr::content(api_result, "text", encoding="UTF-8")
     videos.json = fromJSON(json_result, flatten = T)
     videos.dt = as.data.table(videos.json$items)
-    videos.dt[,.(id, statistics.viewCount, statistics.likeCount, statistics.commentCount)]
+    videos.dt[,.(id, statistics.viewCount, statistics.likeCount, 
+                 statistics.commentCount, snippet.title, snippet.channelTitle)]
   })
   videos.dt = rbindlist(videos_list)
 }
@@ -98,10 +100,13 @@ get_channels_stats = function(id_list, start_date, end_date) {
   videos_stats_dt = videos_stats_dt[,.(videoID=id,
                                        Likes=as.numeric(statistics.likeCount),
                                        Comments=as.numeric(statistics.commentCount),
-                                       Views=as.numeric(statistics.viewCount))]
+                                       Views=as.numeric(statistics.viewCount), 
+                                       Title = snippet.title, 
+                                       Channel = snippet.channelTitle)]
   filtered_videos_with_stats = merge(videos_stats_dt, filtered_videos_dt, by="videoID")
   return(filtered_videos_with_stats)
 }
+
 
 
 
@@ -148,7 +153,7 @@ draw_line_plot = function(data_table){
 server <- function(input, output) {
   # Generowanie wykresu po naciśnięciu przycisku
   observeEvent(input$generuj_wykres, {
-    data_table <- get_channel_stats(c(input$ID1, input$ID2),input$data_pocz, input$data_konc)
+    data_table <- get_channels_stats(c(input$ID1, input$ID2),input$data_pocz, input$data_konc)
     output$wykres <- renderPlot({
      draw_line_plot(data_table)
     })

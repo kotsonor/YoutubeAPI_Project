@@ -90,7 +90,8 @@ get_videos_stats = function(id){
     json_result = httr::content(api_result, "text", encoding="UTF-8")
     videos.json = fromJSON(json_result, flatten = T)
     videos.dt = as.data.table(videos.json$items)
-    videos.dt[,.(id, statistics.viewCount, statistics.likeCount, statistics.commentCount)]
+    videos.dt[,.(id, statistics.viewCount, statistics.likeCount, 
+                 statistics.commentCount, snippet.title, snippet.channelTitle)]
   })
   videos.dt = rbindlist(videos_list)
 }
@@ -108,18 +109,18 @@ get_channel_stats_date = function(channel_id, start_date, end_date){
 
 
 
+
+
 get_channels_stats = function(id_list, start_date, end_date) {
   filtered_videos = lapply(id_list, function(id) get_channel_stats_date(id, start_date, end_date))
   filtered_videos_dt = rbindlist(filtered_videos)
-  # videos_stats = lapply(filtered_videos_dt$videoID, get_videos_stats) 
-  # wrong use of function get_videos_stats (inefficient), 
-  # the function can use multiple arguments as below
   videos_stats_dt = get_videos_stats(filtered_videos_dt$videoID)
-  # videos_stats_dt = rbindlist(videos_stats,fill=TRUE)
   videos_stats_dt = videos_stats_dt[,.(videoID=id,
                                        Likes=as.numeric(statistics.likeCount),
                                        Comments=as.numeric(statistics.commentCount),
-                                       Views=as.numeric(statistics.viewCount))]
+                                       Views=as.numeric(statistics.viewCount), 
+                                       Title = snippet.title, 
+                                       Channel = snippet.channelTitle)]
   filtered_videos_with_stats = merge(videos_stats_dt, filtered_videos_dt, by="videoID")
   return(filtered_videos_with_stats)
 }
@@ -170,9 +171,10 @@ draw_line_plot = function(data_table){
 MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
 PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
 BuddaChannelID="UC8LJZNHnqXKg5TMgyvxszPA"
-data_pocz=as.Date("2023-01-01")
+data_pocz=as.Date("2023-11-11")
 data_konc=as.Date("2024-01-01")
 data=get_channels_stats(c(BuddaChannelID,PewDiePieChannelID),data_pocz,data_konc)
 draw_line_plot(data)
+
 
 
