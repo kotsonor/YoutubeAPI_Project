@@ -1,17 +1,15 @@
-library(data.table)
 
-
-# Definicja interfejsu użytkownika (UI)
+# Definicja UI
 ui <- fluidPage(
-  titlePanel("Aplikacja Shiny z Wykresem"),
+  titlePanel("Youtube channels analysis"),
   
   sidebarLayout(
     sidebarPanel(
-      textInput("ID1", "ID kanału 1", ""),
-      textInput("ID2", "ID kanału 2", ""),
-      dateInput("data_pocz", "Od kiedy (data)", Sys.Date()),
-      dateInput("data_konc", "Do kiedy (data)", Sys.Date()),
-      actionButton("generuj_wykres", "Generuj Wykres")
+      textInput("ID1", "1st channel ID", ""),
+      textInput("ID2", "2nd channel ID", ""),
+      dateInput("data_pocz", "Since when", Sys.Date()),
+      dateInput("data_konc", "Till when", Sys.Date()),
+      actionButton("generuj_wykres", "Generate")
     ),
     
     mainPanel(
@@ -151,7 +149,6 @@ draw_line_plot = function(data_table){
 
 # Definicja serwera
 server <- function(input, output) {
-  # Generowanie wykresu po naciśnięciu przycisku
   observeEvent(input$generuj_wykres, {
     data_table <- get_channels_stats(c(input$ID1, input$ID2),input$data_pocz, input$data_konc)
     output$wykres <- renderPlot({
