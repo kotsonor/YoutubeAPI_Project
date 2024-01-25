@@ -166,7 +166,131 @@ draw_line_plot = function(data_table){
                ncol = 3)
   
 }
+get_avg_by_month = function(channel_id, start_date, end_date) {
+  # Pobranie listy filmów na kanale
+  channel_videos = as.data.table(list_channel_videos(channel_id, max_results = 500))
+  setnames(channel_videos, old=c("contentDetails.videoId"), new=c("VideoId"))
+  # Konwersja kolumny 'Date' na typ Date
+  channel_videos[, Date := as.Date(contentDetails.videoPublishedAt)]
+  
+  # Filtrowanie filmów według okresu czasu
+  channel_videos = channel_videos[ Date >= start_date & Date <= end_date]
+  
+  # Sprawdzenie, czy istnieją jakiekolwiek dane
+  if (nrow(channel_videos) == 0) {
+    message("Brak danych dla okresu czasu ", start_date, " - ", end_date)
+    return(NULL)
+  }
+  
+  # Pobranie statystyk dla filmów
+  videos_stats = rbindlist(lapply(channel_videos$VideoId, get_stats))
+  setnames(videos_stats, old=c("id"), new=c("VideoId"))
+  # Połączenie informacji o filmach i ich statystykach
+  channel_data = merge(channel_videos, videos_stats, by = "VideoId")
+  
+  # Dodanie kolumny z informacją o miesiącu i roku
+  channel_data[, month_year := floor_date(Date, "month")]
+  
+  # Obliczenie średniej ilości wyświetleń dla każdego miesiąca
+  avg_by_month = channel_data[, .(Avg_Views = mean(as.numeric(viewCount)),
+                                  Avg_Likes = mean(as.numeric(likeCount)),
+                                  Avg_Comment = mean(as.numeric(commentCount)),
+                                  Num_Videos = .N),
+                              
+                              by = .(month_year)]
+  
+  
+  return(avg_by_month)
+}
 
+get_avg_by_year = function(channel_id, year) {
+  # Pobranie listy filmów na kanale
+  channel_videos = as.data.table(list_channel_videos(channel_id, max_results = 500))
+  setnames(channel_videos, old=c("contentDetails.videoId"), new=c("VideoId"))
+  # Konwersja kolumny 'Date' na typ Date
+  channel_videos[, Date := as.Date(contentDetails.videoPublishedAt)]
+  
+  # Filtrowanie filmów według okresu czasu
+  channel_videos = channel_videos[ year(Date) == year ]
+  
+  # Sprawdzenie, czy istnieją jakiekolwiek dane
+  if (nrow(channel_videos) == 0) {
+    message("Brak danych dla roku ", year)
+    return(NULL)
+  }
+  
+  # Pobranie statystyk dla filmów
+  videos_stats = rbindlist(lapply(channel_videos$VideoId, get_stats))
+  setnames(videos_stats, old=c("id"), new=c("VideoId"))
+  # Połączenie informacji o filmach i ich statystykach
+  channel_data = merge(channel_videos, videos_stats, by = "VideoId")
+  
+  # Dodanie kolumny z informacją o roku
+  channel_data[, year := year(Date)]
+  
+  # Obliczenie średniej ilości wyświetleń dla danego roku
+  avg_by_year = channel_data[, .(Avg_Views = mean(as.numeric(viewCount)),
+                                 Avg_Likes = mean(as.numeric(likeCount)),
+                                 Avg_Comment = mean(as.numeric(commentCount)),
+                                 Num_Videos = .N), 
+                             by = .(year)]
+  
+  
+  return(avg_by_year)
+}
+
+plot_metrics <- function(data) {
+  plot_views <- ggplot(data, aes(x = month_year, y = Avg_Views)) +
+    geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+    labs(title = "Average Views", x = "Period", y = "Number of Views") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    scale_y_continuous(labels = number_format(scale = 1e-6, suffix = "M")) +
+    theme_minimal()
+  
+  plot_likes <- ggplot(data, aes(x = month_year, y = Avg_Likes)) +
+    geom_bar(stat = "identity", fill = "green", width = 0.5) +
+    labs(title = "Average Likes", x = "Period", y = "Number of Likes") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    scale_y_continuous(labels = number_format(scale = 1e-3, suffix = "K")) +
+    theme_minimal()
+  
+  plot_n_videos <- ggplot(data, aes(x = month_year, y = Num_Videos)) +
+    geom_bar(stat = "identity", fill = "purple", width = 0.5) +
+    labs(title = "Number of Videos Added per Month", x = "Period", y = "Number of Videos") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    theme_minimal()
+  
+  plot_comments <- ggplot(data, aes(x = month_year, y = Avg_Comment)) +
+    geom_bar(stat = "identity", fill = "red", width = 0.5) +
+    labs(title = "Average Comments", x = "Period", y = "Average Comments") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    scale_y_continuous(labels = number_format(scale = 1e-3, suffix = "K")) +
+    theme_minimal()
+  
+  grid.arrange(plot_views, plot_likes, plot_comments, plot_n_videos, nrow = 4)
+}
+
+get_channel_id <- function(api_key, channel_name) {
+  # Tworzymy URL do żądania API
+  url <- sprintf("https://www.googleapis.com/youtube/v3/channels?part=id&forUsername=%s&key=%s",
+                 channel_name, api_key)
+  
+  # Wykonujemy żądanie HTTP
+  response <- GET(url)
+  
+  # Sprawdzamy status odpowiedzi
+  if (http_status(response)$category == "Success") {
+    # Parsujemy odpowiedź JSON
+    channel_data <- fromJSON(content(response, "text", encoding = "UTF-8"))
+    
+    # Wyciągamy Channel ID
+    channel_id <- channel_data$items[[1]]$id
+    
+    return(channel_id)
+  } else {
+    stop("Błąd żądania HTTP")
+  }
+}
 
 MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
 PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
