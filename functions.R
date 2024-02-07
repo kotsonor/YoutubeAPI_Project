@@ -176,4 +176,3 @@ data_konc=as.Date("2024-01-01")
 data=get_channels_stats(c(BuddaChannelID,PewDiePieChannelID),data_pocz,data_konc)
 draw_line_plot(data)
 
-
