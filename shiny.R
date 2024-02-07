@@ -1,26 +1,38 @@
+library(httr)
+library(jsonlite)
+library(here)
+library(tuber) 
 library(data.table)
+library(googleAuthR)
+library(googleAnalyticsR)
+#do wykresow
+library(lubridate)
+library(grid)
+library(gridExtra)
+library(ggplot2)
+library(cowplot)
+library(scales)
+#do logowania
+dat = read.table("./passwords.txt", sep = ",", header = TRUE)
+client_id = dat[,1]
+client_secret = dat[,2]
+key = dat[,3]
 
 
-# Definicja interfejsu użytkownika (UI)
-ui <- fluidPage(
-  titlePanel("Aplikacja Shiny z Wykresem"),
-  
-  sidebarLayout(
-    sidebarPanel(
-      textInput("ID1", "ID kanału 1", ""),
-      textInput("ID2", "ID kanału 2", ""),
-      dateInput("data_pocz", "Od kiedy (data)", Sys.Date()),
-      dateInput("data_konc", "Do kiedy (data)", Sys.Date()),
-      actionButton("generuj_wykres", "Generuj Wykres")
-    ),
-    
-    mainPanel(
-      plotOutput("wykres")
-    )
-  )
-)
+# Set credentials
+options("googleAuthR.client_id" = client_id,
+        "googleAuthR.client_secret" = client_secret,
+        "googleAuthR.scopes.selected" = "https://www.googleapis.com/auth/youtube.readonly")
+
+# Authorization
+googleAuthR::gar_auth()
+
+# Load YouTube API support package
+yt_oauth(app_id = client_id,
+         app_secret = client_secret)
 
 
+#Funkcje
 get_overall_stats = function(id) {
   # general statistics on the channel (channel name, total number of views, number of subs.
   # number of videos, region code)
@@ -148,14 +160,184 @@ draw_line_plot = function(data_table){
   
 }
 
+get_avg_by_month = function(channel_id, start_date, end_date) {
+  channel_id = trimws(channel_id)
+  channel_videos = as.data.table(list_channel_videos(channel_id, max_results = 500))
+  setnames(channel_videos, old=c("contentDetails.videoId"), new=c("VideoId"))
+  channel_videos[, Date := as.Date(contentDetails.videoPublishedAt)]
+  channel_videos = channel_videos[ Date >= start_date & Date <= end_date]
+  videos_stats = rbindlist(lapply(channel_videos$VideoId, get_stats))
+  setnames(videos_stats, old=c("id"), new=c("VideoId"))
+  channel_data = merge(channel_videos, videos_stats, by = "VideoId")
+  channel_data[, month_year := floor_date(Date, "month")]
+  avg_by_month = channel_data[, .(Avg_Views = mean(as.numeric(viewCount)),
+                                  Avg_Likes = mean(as.numeric(likeCount)),
+                                  Avg_Comment = mean(as.numeric(commentCount)),
+                                  Num_Videos = .N), by = .(month_year)]
+  return(avg_by_month)
+}
+
+get_avg_by_year = function(channel_id, year) {
+  channel_id = trimws(channel_id)
+  channel_videos = as.data.table(list_channel_videos(channel_id, max_results = 500))
+  setnames(channel_videos, old=c("contentDetails.videoId"), new=c("VideoId"))
+  channel_videos[, Date := as.Date(contentDetails.videoPublishedAt)]
+  channel_videos = channel_videos[ year(Date) == year ]
+  videos_stats = rbindlist(lapply(channel_videos$VideoId, get_stats))
+  setnames(videos_stats, old=c("id"), new=c("VideoId"))
+  channel_data = merge(channel_videos, videos_stats, by = "VideoId")
+  channel_data[, year := year(Date)]
+  avg_by_year = channel_data[, .(Avg_Views = mean(as.numeric(viewCount)),
+                                 Avg_Likes = mean(as.numeric(likeCount)),
+                                 Avg_Comment = mean(as.numeric(commentCount)),
+                                 Num_Videos = .N), by = .(year)]
+  setnames(avg_by_year, c("Year","Average Views", "Average Likes", "Average Comments", "Number of Videos"))
+  return(avg_by_year)
+}
+
+plot_stat <- function(data) {
+  plot_views <- ggplot(data, aes(x = month_year, y = Avg_Views)) +
+    geom_bar(stat = "identity", fill = "blue", width = 0.5) +
+    labs(title = "Average Views", x = "Period", y = "Number of Views") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    scale_y_continuous(labels = number_format(scale = 1e-6, suffix = "M")) +
+    theme_minimal()
+  
+  plot_likes <- ggplot(data, aes(x = month_year, y = Avg_Likes)) +
+    geom_bar(stat = "identity", fill = "green", width = 0.5) +
+    labs(title = "Average Likes", x = "Period", y = "Number of Likes") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    scale_y_continuous(labels = number_format(scale = 1e-3, suffix = "K")) +
+    theme_minimal()
+  
+  plot_n_videos <- ggplot(data, aes(x = month_year, y = Num_Videos)) +
+    geom_bar(stat = "identity", fill = "purple", width = 0.5) +
+    labs(title = "Number of Videos Added per Month", x = "Period", y = "Number of Videos") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    theme_minimal()
+  
+  plot_comments <- ggplot(data, aes(x = month_year, y = Avg_Comment)) +
+    geom_bar(stat = "identity", fill = "red", width = 0.5) +
+    labs(title = "Average Comments", x = "Period", y = "Average Comments") +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+    scale_y_continuous(labels = number_format(scale = 1e-3, suffix = "K")) +
+    theme_minimal()
+  
+  grid.arrange(plot_views, plot_likes, plot_comments, plot_n_videos, nrow = 4)
+}
+get_channel_id <- function(api_key, channel_name) {
+  url <- sprintf("https://www.googleapis.com/youtube/v3/channels?part=id&forUsername=%s&key=%s",
+                 channel_name, api_key)
+  response <- GET(url)
+  channel_data <- fromJSON(content(response, "text", encoding = "UTF-8"))
+  channel_id <- channel_data[["items"]][["id"]]
+  return(channel_id)
+}
+
+
+# Definicja UI
+ui <- fluidPage(theme = bslib::bs_theme(bootswatch = "lux"),
+                titlePanel("Youtube Data API Project"),
+                tabsetPanel(
+                  tabPanel("Youtube Channels Analysis",
+                           sidebarLayout(
+                             sidebarPanel(
+                               div("Enter the IDs of two channels for comparison.",br(),
+                                   "Specify the analysis period.", br(),
+                                   "Click \"Generate\" to view the plot of changes."), br(),
+                               textInput("ID1", "1st channel ID", ""),
+                               textInput("ID2", "2nd channel ID", ""),
+                               dateInput("data_pocz", "Since when", Sys.Date()),
+                               dateInput("data_konc", "Till when", Sys.Date()),
+                               actionButton("generuj_wykres", "Generate")
+                               
+                             ),
+                             mainPanel(
+                               plotOutput("wykres")
+                             )
+                           )
+                  ),
+                  tabPanel("Youtube Channel Stats",
+                           sidebarLayout(
+                             sidebarPanel(
+                               div("Enter the channel ID for analysis.", br(),
+                                   "Specify the analysis period.", br(),
+                                   "Click \"Generate\" to view plots."),br(),
+                               textInput("ID1_2", "Enter Channel ID:", ""),
+                               dateInput("data_pocz_2", "Since when", Sys.Date()),
+                               dateInput("data_konc_2", "Till when", Sys.Date()),
+                               actionButton("generuj_wykres_2", "Generate")
+                             ),
+                             mainPanel(
+                               plotOutput("wykres_2")
+                             )
+                           ),
+                           sidebarLayout(
+                             sidebarPanel(
+                               div("Enter the channel ID for analysis.", br(),
+                                   "Specify the year.", br(),
+                                   "Click \"Generate Stats\" to get detalied statistics."),br(),
+                               textInput("channel_id_input", "Enter Channel ID:", ""),
+                               numericInput("year_input", "Enter Year:", 2022, min = 2005, max = 2024),
+                               actionButton("generate_stats_button", "Generate Stats")
+                             ),
+                             mainPanel(
+                               tableOutput("stats_table")
+                             )
+                           )
+                           
+                  ),
+                  tabPanel("YouTube Channel ID Finder",
+                           sidebarLayout(
+                             sidebarPanel(
+                               div("Enter the channel name.", br(),
+                                   "Click \"Get Channel ID\" to obtain the channel ID.", br(),
+                                   "WARNING: It works only for username, not for handle(@channelname)"),br(),
+                               textInput("channel_input", "Enter channel name:", ""),
+                               actionButton("get_id_button", "Get Channel ID")
+                             ),
+                             mainPanel(
+                               verbatimTextOutput("channel_id_output")
+                             )
+                           )
+                  )
+                  
+                ))
+
 
 # Definicja serwera
 server <- function(input, output) {
-  # Generowanie wykresu po naciśnięciu przycisku
   observeEvent(input$generuj_wykres, {
     data_table <- get_channels_stats(c(input$ID1, input$ID2),input$data_pocz, input$data_konc)
     output$wykres <- renderPlot({
-     draw_line_plot(data_table)
+      draw_line_plot(data_table)
+    })
+  })
+  observeEvent(input$generuj_wykres_2, {
+    data_table <- get_avg_by_month(input$ID1_2,input$data_pocz_2, input$data_konc_2)
+    output$wykres_2 <- renderPlot({
+      plot_stat(data_table)
+    })
+  })
+  observeEvent(input$get_id_button, {
+    channel_name <- input$channel_input
+    api_key <- key
+    channel_id <- get_channel_id(api_key, channel_name)
+    output$channel_id_output <- renderPrint({
+      cat("Channel ID:", channel_id, "\n")
+    })
+  })
+  observeEvent(input$generate_stats_button, {
+    channel_id <- input$channel_id_input
+    year <- as.integer(input$year_input)
+    
+    # Wywołanie funkcji get_avg_by_year
+    avg_stats <- get_avg_by_year(channel_id, year)
+    
+    # Wyświetlenie statystyk w tabeli
+    output$stats_table <- renderTable({
+      avg_stats
+      
     })
   })
 }
