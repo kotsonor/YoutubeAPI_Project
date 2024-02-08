@@ -1,8 +1,6 @@
 dat = read.table("./passwords.txt", sep = ",", header = TRUE)
-client_id = dat[,1]
-client_secret = dat[,2]
 key = dat[,3]
-
+rm(dat)
 
 library(httr)
 library(jsonlite)
@@ -17,60 +15,98 @@ library(grid)
 library(gridExtra)
 library(ggplot2)
 library(cowplot)
-
-
-# Set credentials
-options("googleAuthR.client_id" = client_id,
-        "googleAuthR.client_secret" = client_secret,
-        "googleAuthR.scopes.selected" = "https://www.googleapis.com/auth/youtube.readonly")
-
-# Authorization
-googleAuthR::gar_auth()
-
-# Load YouTube API support package
-yt_oauth(app_id = client_id,
-         app_secret = client_secret)
-
-MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
-PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
+library(dplyr)
 
 
 
 
-get_overall_stats = function(id) {
-  # general statistics on the channel (channel name, total number of views, number of subs.
-  # number of videos, region code)
-  stats = get_channel_stats(channel_id = id)
-  stats_dt = as.data.table(stats[[5]])
-  stats_dt = stats_dt[, -3]
-  stats_dt = stats_dt[,lapply(.SD, as.numeric)]
-  stats_dt = stats_dt[, channelName := stats[[4]][["localized"]][["title"]]]
-  stats_dt = stats_dt[, channelCountry := stats[[4]][["country"]]]
-  return(stats_dt)
+
+get_overall_stats = function(channel_id_list) {
+  # returns general statistics of the channel 
+  # (channel_id, playlist_id, channel name, total no. of views, no. of subcribers, videoCount)
+  api_params <- 
+    paste(paste0("key=", key), 
+          paste0("id=", paste(channel_id_list, collapse = ",")), 
+          "part=snippet,contentDetails,statistics",
+          sep = "&")
+  base <- "https://www.googleapis.com/youtube/v3/"
+  api_call <- paste0(base, "channels", "?", api_params)
+  api_result <- GET(api_call)
+  json_result <- content(api_result, "text", encoding="UTF-8")
+  channel.json <- fromJSON(json_result, flatten = T)
+  channel.dt <- as.data.table(channel.json$items)
+  #extract wanted statistics
+  channel.dt[, .("channel_id" = id, 
+                 "playlist_id" = contentDetails.relatedPlaylists.uploads,
+                    "ChannelName" = snippet.title, 
+                    "Views" = as.numeric(statistics.viewCount), 
+                    "Subscribers" = as.numeric(statistics.subscriberCount), 
+                    "videoCount" = as.numeric(statistics.videoCount))]
+  
 }
 
 
-MrBeast_stats = get_overall_stats(MrBeastChannelID)
 
 
-get_channel_videos = function(id, max_results) {
-  # creates a data frame of all videos on the channel with the date when they were published 
-  # max results uses overall_stats to display all videos 
-  channel_videos = as.data.table(list_channel_videos(id, max_results))
-  channel_videos = channel_videos[, .("videoID" = contentDetails.videoId, 
-                                      "Date" = as.Date(contentDetails.videoPublishedAt))]
-  channel_videos = as.data.table(channel_videos)
-  return(channel_videos)
+get_channel_videos = function(playlist_id, max_results=2000, start_date, end_date) {
+  # returns all video_ids from a particular playlist 
+  
+  base <- "https://www.googleapis.com/youtube/v3/"
+  nextPageToken <- ""
+  upload.dt <- NULL
+  pageInfo <- NULL
+  # Loop through the playlist while there is still a next page
+  while (!is.null(nextPageToken)) {
+    # Construct the API call
+    api_params <- 
+      paste(paste0("key=", key), 
+            paste0("playlistId=", playlist_id), 
+            "part=snippet,contentDetails,status",
+            "maxResults=50",
+            sep = "&")
+    
+    # Add the page token for page 2 onwards
+    if (nextPageToken != "") {
+      api_params <- paste0(api_params,
+                           "&pageToken=",nextPageToken)
+    }
+    api_call <- paste0(base, "playlistItems", "?", api_params)
+    api_result <- GET(api_call)
+    json_result <- content(api_result, "text", encoding="UTF-8")
+    upload.json <- fromJSON(json_result, flatten = T)
+    
+    nextPageToken <- upload.json$nextPageToken
+    pageInfo <- upload.json$pageInfo
+    
+    curr.dt <- as.data.table(upload.json$items)
+    curr.dt <- curr.dt[, .("channel_id" = snippet.channelId, 
+                           "Date" = as.Date(snippet.publishedAt), 
+                           "VideoTitle" = snippet.title, 
+                           "ChannelName" = snippet.channelTitle, 
+                           "video_id" = contentDetails.videoId )]
+    if (is.null(upload.dt)) {
+      upload.dt <- curr.dt
+    } else {
+      upload.dt <- bind_rows(upload.dt, curr.dt)
+    }
+    
+    if (nrow(upload.dt) >= max_results) {
+      print(upload.dt)
+      break
+    }}
+  upload.dt = upload.dt[Date<=end_date]
+  upload.dt = upload.dt[Date>=start_date]
+  return(upload.dt)
 }
 
-filmy <- get_channel_videos(MrBeastChannelID,20)
+
 
 
 get_videos_stats = function(id){
-  # id = vector of videoIDs
+  # id = vector of video_ids
   # returns a data table of video title and statistics (views, likes, comms)
-  subvectors <- list()
   
+  subvectors <- list()
   # Split the vector into sub-vectors of size 50
   # we can get max 50 statistics at once with 1 api call
   for (i in seq(1, length(id), 50)) {
@@ -90,41 +126,32 @@ get_videos_stats = function(id){
     json_result = httr::content(api_result, "text", encoding="UTF-8")
     videos.json = fromJSON(json_result, flatten = T)
     videos.dt = as.data.table(videos.json$items)
-    videos.dt[,.(id, statistics.viewCount, statistics.likeCount, 
-                 statistics.commentCount, snippet.title, snippet.channelTitle)]
+    videos.dt[,.(video_id = id, 
+                 Views = as.numeric(statistics.viewCount), 
+                 Likes = as.numeric(statistics.likeCount), 
+                 Comments = as.numeric(statistics.commentCount))]
   })
   videos.dt = rbindlist(videos_list)
-}
-
-
-filmy_stats = get_videos_stats(filmy$videoID)
-
-get_channel_stats_date = function(channel_id, start_date, end_date){
-  videos = get_channel_videos(channel_id, max_results = 2000)
-  videos = videos[Date<=end_date]
-  videos = videos[Date>=start_date]
-  videos$channel_id=channel_id
-  return(videos)
+  return(videos.dt)
 }
 
 
 
 
-
-get_channels_stats = function(id_list, start_date, end_date) {
-  filtered_videos = lapply(id_list, function(id) get_channel_stats_date(id, start_date, end_date))
-  filtered_videos_dt = rbindlist(filtered_videos)
-  videos_stats_dt = get_videos_stats(filtered_videos_dt$videoID)
-  videos_stats_dt = videos_stats_dt[,.(videoID=id,
-                                       Likes=as.numeric(statistics.likeCount),
-                                       Comments=as.numeric(statistics.commentCount),
-                                       Views=as.numeric(statistics.viewCount), 
-                                       Title = snippet.title, 
-                                       Channel = snippet.channelTitle)]
-  filtered_videos_with_stats = merge(videos_stats_dt, filtered_videos_dt, by="videoID")
-  return(filtered_videos_with_stats)
+get_channels_stats = function(channel_id_list, start_date, end_date, max_result = 500) {
+  # main function that utilze other small functions
+  # for a vector of channel_ids returns all videos with statistics from a certain time period
+  overall = get_overall_stats(channel_id_list)
+  videos_list = lapply(overall$playlist_id, 
+                     function(current_playlist_id) 
+                       get_channel_videos(current_playlist_id, max_results = max_result, start_date, end_date))
+  videos_dt = rbindlist(videos_list)
+  videos_stats_dt = get_videos_stats(videos_dt$video_id)
+  merged_dt = merge(videos_dt, videos_stats_dt, by = "video_id")
+  return(merged_dt)
+  
 }
-
+  
 
 
 
@@ -295,10 +322,9 @@ get_channel_id <- function(api_key, channel_name) {
 MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
 PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
 BuddaChannelID="UC8LJZNHnqXKg5TMgyvxszPA"
-data_pocz=as.Date("2023-11-11")
+data_pocz=as.Date("2023-06-11")
 data_konc=as.Date("2024-01-01")
 data=get_channels_stats(c(BuddaChannelID,PewDiePieChannelID),data_pocz,data_konc)
 draw_line_plot(data)
-
 
 
