@@ -5,10 +5,7 @@ rm(dat)
 library(httr)
 library(jsonlite)
 library(here)
-library(tuber) 
 library(data.table)
-library(googleAuthR)
-library(googleAnalyticsR)
 #do wykresow
 library(lubridate)
 library(grid)
@@ -16,9 +13,33 @@ library(gridExtra)
 library(ggplot2)
 library(cowplot)
 library(dplyr)
+library(scales)
 
 
-
+convert_time <- function(str) {
+  n <- nchar(str)
+  ans <- 0
+  curr <- 0
+  
+  for (i in 1:n) {
+    if (substr(str, i, i) == 'P' || substr(str, i, i) == 'T') {
+      next
+    } else if (substr(str, i, i) == 'H') {
+      ans <- ans + 3600 * curr
+      curr <- 0
+    } else if (substr(str, i, i) == 'M') {
+      ans <- ans + 60 * curr
+      curr <- 0
+    } else if (substr(str, i, i) == 'S') {
+      ans <- ans + curr
+      curr <- 0
+    } else {
+      curr <- 10 * curr + as.numeric(substr(str, i, i))
+    }
+  }
+  
+  return(ans)
+}
 
 
 get_overall_stats = function(channel_id_list) {
@@ -38,10 +59,10 @@ get_overall_stats = function(channel_id_list) {
   #extract wanted statistics
   channel.dt[, .("channel_id" = id, 
                  "playlist_id" = contentDetails.relatedPlaylists.uploads,
-                    "ChannelName" = snippet.title, 
-                    "Views" = as.numeric(statistics.viewCount), 
-                    "Subscribers" = as.numeric(statistics.subscriberCount), 
-                    "videoCount" = as.numeric(statistics.videoCount))]
+                 "ChannelName" = snippet.title, 
+                 "Views" = as.numeric(statistics.viewCount), 
+                 "Subscribers" = as.numeric(statistics.subscriberCount), 
+                 "videoCount" = as.numeric(statistics.videoCount))]
   
 }
 
@@ -91,7 +112,6 @@ get_channel_videos = function(playlist_id, max_results=2000, start_date, end_dat
     }
     
     if (nrow(upload.dt) >= max_results) {
-      print(upload.dt)
       break
     }}
   upload.dt = upload.dt[Date<=end_date]
@@ -119,7 +139,7 @@ get_videos_stats = function(id){
     api_params = 
       paste(paste0("key=", key), 
             paste0("id=", paste(current_id, collapse = "%2C")), 
-            "part=statistics%2Csnippet",
+            "part=statistics%2Csnippet%2CcontentDetails",
             sep = "&")
     api_call = paste0(base, "?", api_params)
     api_result = GET(api_call)
@@ -129,12 +149,12 @@ get_videos_stats = function(id){
     videos.dt[,.(video_id = id, 
                  Views = as.numeric(statistics.viewCount), 
                  Likes = as.numeric(statistics.likeCount), 
-                 Comments = as.numeric(statistics.commentCount))]
+                 Comments = as.numeric(statistics.commentCount),
+                 Duration = contentDetails.duration)]
   })
   videos.dt = rbindlist(videos_list)
   return(videos.dt)
 }
-
 
 
 
@@ -143,15 +163,15 @@ get_channels_stats = function(channel_id_list, start_date, end_date, max_result 
   # for a vector of channel_ids returns all videos with statistics from a certain time period
   overall = get_overall_stats(channel_id_list)
   videos_list = lapply(overall$playlist_id, 
-                     function(current_playlist_id) 
-                       get_channel_videos(current_playlist_id, max_results = max_result, start_date, end_date))
+                       function(current_playlist_id) 
+                         get_channel_videos(current_playlist_id, max_results = max_result, start_date, end_date))
   videos_dt = rbindlist(videos_list)
   videos_stats_dt = get_videos_stats(videos_dt$video_id)
   merged_dt = merge(videos_dt, videos_stats_dt, by = "video_id")
   return(merged_dt)
   
 }
-  
+
 
 
 
@@ -159,8 +179,8 @@ get_channels_stats = function(channel_id_list, start_date, end_date, max_result 
 draw_line_plot = function(data_table){
   data_table[, mounth_year := floor_date(Date, "month")]
   group_data_table = data_table[,.(Likes=mean(Likes),
-                                     Comments=mean(Comments),
-                                     Views=mean(Views)),
+                                   Comments=mean(Comments),
+                                   Views=mean(Views)),
                                 by=.(mounth_year, channel_id)]
   
   plot_views = ggplot(group_data_table, aes(x=mounth_year, y=Views, color=channel_id)) +
@@ -322,9 +342,62 @@ get_channel_id <- function(api_key, channel_name) {
 MrBeastChannelID="UCX6OQ3DkcsbYNE6H8uQQuVA"
 PewDiePieChannelID="UC-lHJZR3Gqxm24_Vd_AJ5Yw"
 BuddaChannelID="UC8LJZNHnqXKg5TMgyvxszPA"
+GenzieID = "UCkIwvE28idLCTxgLZ3VdBDQ"
+RybsonID = "UCXPuN_JsazWBNtlPOOf_hDw"
+
 data_pocz=as.Date("2023-06-11")
 data_konc=as.Date("2024-01-01")
-data=get_channels_stats(c(BuddaChannelID,PewDiePieChannelID),data_pocz,data_konc)
+data=get_channels_stats(c(BuddaChannelID,GenzieID, RybsonID),data_pocz,data_konc)
 draw_line_plot(data)
 
+data
+
+
+data[, Date_month := floor_date(Date, "month")]
+data$Duration2 = as.numeric(sapply(data$Duration, convert_time))
+
+data[, Short := ifelse(Duration2>60, "Video", "Short")]
+group_data = data[,.(Likes = sum(Likes),
+                     Comments = sum(Comments),
+                     Views = sum(Views),
+                     Videos = .N), by=.(Date_month, ChannelName)]
+
+group_data_long = melt(group_data, id.vars = c("Date_month", "ChannelName"), 
+                       variable.name = "Statistic")
+
+
+
+
+ggplot(data = group_data_long, aes(x = Date_month, y = value, color = ChannelName)) + 
+  geom_line() + geom_point() +
+  scale_x_date(breaks = date_breaks("months"), labels = date_format("%m/%y")) + 
+  scale_y_continuous(labels = function(x) ifelse(x >= 1e6, paste0(x/1e6, "M"), ifelse(x >= 1e3, paste0(x/1e3, "K"), x))) + 
+  facet_wrap(~Statistic, ncol = 1, scales = "free") + 
+  theme_bw()
+
+ggplot(data = group_data_long, aes(x = Date_month, y = value, fill = ChannelName)) + 
+  # geom_line() + geom_point() +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_x_date(date_labels = "%m.%y", date_breaks = "1 month") +
+  scale_y_continuous(labels = function(x) ifelse(x >= 1e6, paste0(x/1e6, "M"), ifelse(x >= 1e3, paste0(x/1e3, "K"), x))) + 
+  facet_wrap(~Statistic, ncol = 2, scales = "free") + 
+  theme_bw() +
+  xlab("Date") + ylab("Count") + 
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")
+
+
+friz
+
+#average video duration
+data[, mean(Duration2)/60, by = "Short"]
+
+# api search template
+api_call = 'https://youtube.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&key=AIzaSyDeqQToD16wjoMo47e5R0pUikDkfvz_FwQ&q=PewDiePie' 
+api_result <- GET(api_call)
+json_result <- content(api_result, "text", encoding="UTF-8")
+channel.json <- fromJSON(json_result, flatten = T)
+channel.dt <- as.data.table(channel.json$items)
+channel.dt[1, snippet.channelId]
+PewDiePieChannelID
 
