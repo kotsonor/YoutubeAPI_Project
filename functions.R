@@ -174,45 +174,6 @@ get_channels_stats = function(channel_id_list, start_date, end_date, max_result 
 
 
 
-
-#Trzeba jakos pogrupowac po tylko miesiacach i latach bo wykres jest bardzo niczytelny
-draw_line_plot = function(data_table){
-  data_table[, mounth_year := floor_date(Date, "month")]
-  group_data_table = data_table[,.(Likes=mean(Likes),
-                                   Comments=mean(Comments),
-                                   Views=mean(Views)),
-                                by=.(mounth_year, channel_id)]
-  
-  plot_views = ggplot(group_data_table, aes(x=mounth_year, y=Views, color=channel_id)) +
-    geom_line() +
-    theme_bw() +
-    ggtitle("Number of views changes") +
-    xlab("Date") +
-    theme(legend.position = "none")
-  
-  plot_likes = ggplot(group_data_table, aes(x=mounth_year, y=Likes, color=channel_id)) +
-    geom_line() +
-    theme_bw() +
-    ggtitle("Number of likes changes") +
-    xlab("Date")+
-    theme(legend.position = "none")
-  
-  plot_comments = ggplot(group_data_table, aes(x=mounth_year, y=Comments, color=channel_id)) +
-    geom_line() +
-    theme_bw() +
-    ggtitle("Number of comments changes") +
-    xlab("Date") +
-    theme(legend.position = "none")
-  
-  legend = get_legend(plot_views + theme(legend.position="bottom"))
-  grid.arrange(plot_views,
-               plot_likes,
-               plot_comments,
-               ggplot()+theme_void(),
-               legend,
-               ncol = 3)
-  
-}
 get_avg_by_month = function(channel_id, start_date, end_date) {
   # Pobranie listy filmów na kanale
   channel_videos = as.data.table(list_channel_videos(channel_id, max_results = 500))
@@ -348,7 +309,7 @@ RybsonID = "UCXPuN_JsazWBNtlPOOf_hDw"
 data_pocz=as.Date("2023-06-11")
 data_konc=as.Date("2024-01-01")
 data=get_channels_stats(c(BuddaChannelID,GenzieID, RybsonID),data_pocz,data_konc)
-draw_line_plot(data)
+
 
 data
 
@@ -375,19 +336,37 @@ ggplot(data = group_data_long, aes(x = Date_month, y = value, color = ChannelNam
   facet_wrap(~Statistic, ncol = 1, scales = "free") + 
   theme_bw()
 
-ggplot(data = group_data_long, aes(x = Date_month, y = value, fill = ChannelName)) + 
-  # geom_line() + geom_point() +
-  geom_bar(stat = "identity", position = "dodge") +
-  scale_x_date(date_labels = "%m.%y", date_breaks = "1 month") +
-  scale_y_continuous(labels = function(x) ifelse(x >= 1e6, paste0(x/1e6, "M"), ifelse(x >= 1e3, paste0(x/1e3, "K"), x))) + 
-  facet_wrap(~Statistic, ncol = 2, scales = "free") + 
-  theme_bw() +
-  xlab("Date") + ylab("Count") + 
-  scale_fill_brewer(palette = "Set1") +
-  theme(legend.position = "bottom")
+
+plot_data <- function(data) {
+  data[, Date_month := floor_date(Date, "month")]
+  data$Duration2 = as.numeric(sapply(data$Duration, convert_time))
+  
+  data[, Short := ifelse(Duration2>60, "Video", "Short")]
+  group_data = data[,.(Likes = sum(Likes),
+                       Comments = sum(Comments),
+                       Views = sum(Views),
+                       Videos = .N), by=.(Date_month, ChannelName)]
+  
+  group_data_long = melt(group_data, id.vars = c("Date_month", "ChannelName"), 
+                         variable.name = "Statistic")
+  
+  ggplot(data = group_data_long, aes(x = Date_month, y = value, fill = ChannelName)) + 
+    # geom_line() + geom_point() +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_x_date(date_labels = "%m.%y", date_breaks = "1 month") +
+    scale_y_continuous(labels = function(x) ifelse(x >= 1e6, paste0(x/1e6, "M"), ifelse(x >= 1e3, paste0(x/1e3, "K"), x))) + 
+    facet_wrap(~Statistic, ncol = 2, scales = "free") + 
+    theme_bw() +
+    xlab("Date") + ylab("Count") + 
+    scale_fill_brewer(palette = "Set1") +
+    theme(legend.position = "bottom")
+  
+}
+
+plot_data(data)
 
 
-friz
+
 
 #average video duration
 data[, mean(Duration2)/60, by = "Short"]
@@ -400,4 +379,8 @@ channel.json <- fromJSON(json_result, flatten = T)
 channel.dt <- as.data.table(channel.json$items)
 channel.dt[1, snippet.channelId]
 PewDiePieChannelID
+
+
+
+
 
