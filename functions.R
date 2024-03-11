@@ -372,14 +372,24 @@ plot_data(data)
 data[, mean(Duration2)/60, by = "Short"]
 
 # api search template
-api_call = 'https://youtube.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&key=AIzaSyDeqQToD16wjoMo47e5R0pUikDkfvz_FwQ&q=PewDiePie' 
-api_result <- GET(api_call)
-json_result <- content(api_result, "text", encoding="UTF-8")
-channel.json <- fromJSON(json_result, flatten = T)
-channel.dt <- as.data.table(channel.json$items)
-channel.dt[1, snippet.channelId]
-PewDiePieChannelID
 
+find_channel_id <- function(channel_names) {
+  data = lapply(channel_names, function(channel_name) {
+    base = 'https://youtube.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q='
+    api_call = paste0(base, channel_name, "&key=", key)
+    api_result <- GET(api_call)
+    json_result <- content(api_result, "text", encoding="UTF-8")
+    channel.json <- fromJSON(json_result, flatten = T)
+    channel.dt <- as.data.table(channel.json$items)
+  })
+  #we have data tables with 5 records from search, we look for channels in these since those can be also videos
+  channels_search = lapply(test, function(data_channel_search) {
+    data_channel_search[id.kind == "youtube#channel", 
+                        .("channel_id" = snippet.channelId, "ChannelName" = snippet.channelTitle)]
+  })
+  channels_search
+  
+}
 
 
 
